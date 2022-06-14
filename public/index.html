@@ -12,140 +12,337 @@
       type="application/javascript"
     ></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@biconomy/mexa@latest/dist/mexa.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <script>
-      const getAddress = async () => {
-        signer = await provider.getSigner();
-        const address = await signer.getAddress();
-
-        window.address = address;
-
-        return address;
-      };
-
-      const getBalance = async (address, tokenId) => {
-        const balance = await signer.getBalance();
-        const convertToEth = 1e18;
-
-        // 另一種取得地址餘額方式
-        const balance1 = await window.provider.getBalance(window.address);
-        // 使用ethers內建的方式轉換單位
-        console.log(ethers.utils.formatEther(balance1));
-
-        return balance.toString() / convertToEth;
-      };
-
-      const readDataFromSmartContract = async () => {
-        const greet = await window.Contract.greet();
-        return greet;
-      };
-
-      const sendGreeting = async (input) => {
+      const getToDo = async () => {
         const signer = await provider.getSigner();
-        const tx = await window.Contract.connect(signer).setGreeting(input);
-        const response = await tx.wait();
-
-        console.log(response);
+        const greet = await window.Contract.connect(signer).todoList();
+        return greet.map((item) => {
+          return { todo: item.todo, completed: item.completed };
+        });
       };
 
-      const getBlockEvent = async () => {
-        const block = await provider.getBlockNumber();
-        const transferEvents = await window.Contract.queryFilter("TestEvent", block - 10, block);
-        console.table(transferEvents);
-        return transferEvents;
-      };
+      function toDoList() {
+        return {
+          newTodo: "",
+          todos: [],
+          address: "",
+          login: false,
+          pending: false,
 
-      const getBlockChainInfo = async () => {
-        const block = await provider.getBlockNumber();
-        const Info = await provider.getBlock(block);
-        console.log(Info);
-      };
+          async getAddress() {
+            const { chainId } = await provider.getNetwork();
+            if (chainId !== 80001) {
+              Swal.fire({
+                icon: "error",
+                title: "Please check network...",
+                text: "change metamask network to Mumbai and refresh",
+                footer:
+                  '<a target="_blank" style="color:red" href="https://chainlist.org/chain/80001">Connect wallet here</a>',
+              });
+              return;
+            }
+
+            const signer = await provider.getSigner();
+            this.address = await signer.getAddress();
+
+            this.todos = await getToDo();
+            this.login = true;
+          },
+          async addToDo() {
+            this.pending = true;
+            const tx = await biconomyContract.methods
+              .addToDo(this.newTodo)
+              .send({ from: this.address });
+
+            this.todos = await getToDo();
+            this.newTodo = "";
+            this.pending = false;
+          },
+          async toggleToDoCompleted(index) {
+            this.pending = true;
+            const tx = await biconomyContract.methods
+              .toggleToDoCompleted(index)
+              .send({ from: this.address });
+
+            this.todos = await getToDo();
+            this.pending = false;
+          },
+          async deleteToDo(index) {
+            this.pending = true;
+            const tx = await biconomyContract.methods
+              .deleteToDo(index)
+              .send({ from: this.address });
+
+            this.todos = await getToDo();
+            this.pending = false;
+          },
+          numberOfToDosCompleted() {
+            return this.todos.filter((todo) => todo.completed).length;
+          },
+          toDoCount() {
+            return this.todos.length;
+          },
+          isLastToDo(index) {
+            return this.todos.length - 1 === index;
+          },
+        };
+      }
     </script>
   </head>
 
   <body>
-    <div class="py-64 container mx-auto px-6">
-      <div class=" ">
-        <h2 class="text-5xl text-green-600">Heading</h2>
-      </div>
-      <div class="bg-gray-200" x-data="{address:'',balance:0,greet:'',greeting:'',info:[]}">
-        <button
-          @click="address=await getAddress()"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          Get Address
-        </button>
-        <span x-text="address"></span>
+    <div class="container px-6 py-64 mx-auto">
+      <div
+        x-data="toDoList()"
+        class="max-w-2xl px-12 py-8 mx-auto bg-gray-200 rounded-lg shadow-lg"
+      >
+        <div class="flex flex-col items-center justify-center mb-8">
+          <h1 class="mb-8 text-3xl font-bold">To Do List</h1>
+          <div x-show="!login">
+            <button
+              @click="await getAddress()"
+              class="px-4 py-2 font-bold text-white bg-blue-500 rounded hover:bg-blue-700"
+            >
+              Login First
+            </button>
+          </div>
 
-        <button
-          @click="balance=await getBalance()"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          Get Balance
-        </button>
-        <span x-text="balance"></span>
+          <div x-show="login">
+            <span x-text="'Address: ' + address"></span>
 
-        <button
-          @click="greet=await readDataFromSmartContract()"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          Greet
-        </button>
-        <span x-text="greet"></span>
+            <div x-show="pending" class="flex space-x-4 animate-pulse">
+              <div class="flex-1 py-1 space-y-4">
+                <div class="h-2 rounded bg-slate-700"></div>
+                <div class="h-2 col-span-2 rounded bg-slate-700"></div>
+                <div class="grid grid-cols-3 gap-4"></div>
+              </div>
+            </div>
 
-        <input
-          x-model="greeting"
-          type="text"
-          class="border p-2 w-full mb-2 mt-6"
-          placeholder="Input greeting..."
-        />
-        <button
-          @click="sendGreeting(greeting)"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          Greet
-        </button>
-
-        <br />
-        <button
-          @click="events = await getBlockEvent()"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          getBlockEvent
-        </button>
-        <span x-text="JSON.stringify(events)"></span>
-        <br />
-        <button
-          @click="await getBlockChainInfo()"
-          class="bg-blue-800 text-white px-4 py-2 rounded-lg mt-4"
-        >
-          getBlockChainInfo
-        </button>
+            <input
+              x-show="!pending"
+              type="text"
+              x-model="newTodo"
+              placeholder="I need to..."
+              class="min-w-full px-4 py-2 mx-auto text-lg rounded shadow"
+              @keydown.enter="addToDo"
+            />
+          </div>
+        </div>
+        <div class="w-full mb-8 bg-white rounded shadow">
+          <template x-for="(todo, index) in todos" :key="index">
+            <div
+              class="flex items-center py-4"
+              :class="{ 'border-b border-gray-400': ! isLastToDo(index) }"
+            >
+              <div class="w-1/12 text-center">
+                <input
+                  type="checkbox"
+                  @change="toggleToDoCompleted(index)"
+                  :checked="todo.completed"
+                />
+              </div>
+              <div class="w-10/12">
+                <p x-text="todo.todo" :class="{ 'line-through': todo.completed }"></p>
+              </div>
+              <div class="w-1/12 text-center">
+                <button
+                  class="px-2 py-1 text-white bg-red-600 rounded hover:bg-red-700"
+                  @click="deleteToDo(index)"
+                >
+                  &cross;
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div>
+          <span x-text="numberOfToDosCompleted()"></span> / <span x-text="toDoCount()"></span> to
+          dos completed
+        </div>
       </div>
     </div>
 
     <script type="module">
-      // 要將連線的chain id 改成 31337
-
-      // 本地部署完之後要記得修改合約地址
-      const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+      const contractAddress = "0x2cAcE312123963a32c01b881ca3A2A5aA248B923";
+      const abi = [
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "_trustedForwarder",
+              type: "address",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "constructor",
+        },
+        {
+          inputs: [
+            {
+              internalType: "string",
+              name: "_todo",
+              type: "string",
+            },
+          ],
+          name: "addToDo",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint8",
+              name: "index",
+              type: "uint8",
+            },
+          ],
+          name: "deleteToDo",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "forwarder",
+              type: "address",
+            },
+          ],
+          name: "isTrustedForwarder",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "owner",
+          outputs: [
+            {
+              internalType: "address",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "_trustedForwarder",
+              type: "address",
+            },
+          ],
+          name: "setTrustForwarder",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "todoList",
+          outputs: [
+            {
+              components: [
+                {
+                  internalType: "bool",
+                  name: "completed",
+                  type: "bool",
+                },
+                {
+                  internalType: "string",
+                  name: "todo",
+                  type: "string",
+                },
+              ],
+              internalType: "struct ToDo.Memo[]",
+              name: "",
+              type: "tuple[]",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint8",
+              name: "index",
+              type: "uint8",
+            },
+          ],
+          name: "toggleToDoCompleted",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "trustedForwarder",
+          outputs: [
+            {
+              internalType: "address",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "versionRecipient",
+          outputs: [
+            {
+              internalType: "string",
+              name: "",
+              type: "string",
+            },
+          ],
+          stateMutability: "pure",
+          type: "function",
+        },
+      ];
 
       window.onload = async () => {
         if (window.ethereum) {
           window.provider = new ethers.providers.Web3Provider(window.ethereum);
           await window.ethereum.enable();
-
-          const response = await fetch("../artifacts/contracts/Greeter.sol/Greeter.json");
-
-          const { abi } = await response.json();
-
           window.Contract = new ethers.Contract(contractAddress, abi, window.provider);
 
-          window.Contract.on("TestEvent", (from, inputData) => {
-            console.log({ from, inputData });
+          console.log("web3 loaded");
+
+          const biconomy = new Biconomy(window.ethereum, {
+            apiKey: "ttaAYvNY5.141e9d2e-186d-4132-97f1-74d6fa03d250",
+            strictMode: true,
           });
 
-          console.log("web3 loaded");
+          const web3 = new Web3(biconomy);
+
+          biconomy
+            .onEvent(biconomy.READY, () => {
+              // Initialize your dapp here like getting user accounts etc
+
+              window.biconomyContract = new web3.eth.Contract(abi, contractAddress);
+
+              console.log("biconomy loaded");
+            })
+            .onEvent(biconomy.ERROR, (error, message) => {
+              // Handle error while initializing mexa
+            });
         } else {
           alert("No ETH browser extension detected.");
         }
